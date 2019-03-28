@@ -9,6 +9,8 @@
 #include <unordered_map>
 #include <memory>
 
+#include "ref_string.h"
+
 static constexpr char kHTTPVersion[] = "HTTP/1.1";
 
 class HTTPStatusDesc {
@@ -74,23 +76,29 @@ public:
 
 class HTTPRequest {
 public:
-  std::string method;
-  std::string path;
-  char version_main;
-  char version_sub;
-  std::unordered_map<std::string, std::string> headers;
+  RefString method;
+  RefString path;
+  RefString version;
+  std::unordered_map<RefString, RefString> headers;
   size_t http_header_len;
   size_t payload_len;
-
   char* payload;
-
-private:
-  std::shared_ptr<char> raw_ptr;
 
 public:
   HTTPRequest();
-  bool parseData(std::shared_ptr<char> raw_data);
-  void changeBuf(std::shared_ptr<char> new_buf);
+  HTTPRequest(const HTTPRequest& request);
+  HTTPRequest(HTTPRequest&& request) noexcept;
+
+  HTTPRequest& operator=(const HTTPRequest &request) = delete;
+
+  ~HTTPRequest();
+  bool parseHeader(char* header_data);
+  bool setPayload(char* payload_ptr);
+  std::string getDecodedPath();
+
+private:
+  char* header_buf;
+  char* payload_buf;
 
 private:
   char* parseRequestMethod(char* p);
@@ -103,7 +111,6 @@ private:
 
 class HTTPResponse {
 private:
-
   uint16_t code;
   std::string self_desc;
   std::unordered_map<std::string, std::string> headers;
@@ -115,7 +122,8 @@ private:
 public:
   HTTPResponse(uint16_t code, std::unordered_map<std::string, std::string> headers, const char* payload, size_t payload_len);
   HTTPResponse(uint16_t code, std::string desc, std::unordered_map<std::string, std::string> headers, const char* payload, size_t payload_len);
-  std::shared_ptr<char> getRawData();
+
+  char* getRawData();
   size_t getRawDataLen();
 };
 
