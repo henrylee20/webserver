@@ -42,7 +42,6 @@ public:
   const char& at(size_t pos) { return begin_ptr[pos];}
   const char& at(size_t pos) const { return begin_ptr[pos];}
 
-
   const char& operator[](size_t pos) { return at(pos);}
   const char& operator[](size_t pos) const { return at(pos);}
 
@@ -53,6 +52,8 @@ public:
   bool operator==(const RefString& str) const { return !compare(str);}
   bool operator==(const std::string& str) const { return !compare(str);}
   bool operator==(const char* str) const { return !compare(str);}
+
+  std::string toString() { return std::string(begin_ptr, end_ptr - begin_ptr);}
 
   friend std::ostream& operator<<(std::ostream& os, const RefString& str);
 };

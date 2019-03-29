@@ -4,6 +4,7 @@
 
 #include <utility>
 #include <string>
+#include <malloc.h>
 #include <string.h>
 #include <unistd.h>
 #include <pthread.h>
@@ -89,6 +90,7 @@ HTTPConnection HTTPListener::accept() {
   return std::move(HTTPConnection(newsock, ip, port));
 }
 
+HTTPConnection::HTTPConnection() : fd(-1), ip("Not Connected"), port(0) {}
 HTTPConnection::HTTPConnection(int fd, string ip, uint16_t port): fd(fd), ip(std::move(ip)), port(port) {
 }
 
@@ -109,36 +111,48 @@ ssize_t HTTPConnection::write(char *buf, size_t len) {
   return sent_len;
 }
 
-HTTPRequest HTTPConnection::recvRequest() {
-  shared_ptr<char> buf(new char[kRecvBufSize]);
+bool HTTPConnection::recvRequest(HTTPRequest& request, uint16_t& err_code) {
+  char* header_buf = new char[kRecvBufSize];
 
-  ssize_t read_len = read(buf.get(), kRecvBufSize);
-  HTTPRequest request;
-  request.parseData(buf);
+  ssize_t read_len = read(header_buf, kRecvBufSize);
+  if (!read_len) {
+    err_code = 0;
+    return false;
+  }
+
+  request.parseHeader(header_buf);
 
   if (read_len == kRecvBufSize && request.payload_len == 0) {
     perror("Headers is too large.\n");
+    err_code = 413;
+    return false;
   }
 
   if (request.payload_len && read_len == kRecvBufSize) {
-    shared_ptr<char> new_buf(new char[kRecvBufSize + request.payload_len]);
-    memcpy(new_buf.get(), buf.get(), kRecvBufSize);
-    request.changeBuf(new_buf);
+    auto payload_buf = new char[request.payload_len];
 
-    size_t left_size = request.payload_len + request.http_header_len - kRecvBufSize;
-    read(new_buf.get() + kRecvBufSize, left_size);
+    size_t offset = kRecvBufSize - request.http_header_len;
+    memcpy(payload_buf, request.payload, offset);
+
+    size_t left_size = request.payload_len - offset;
+    read(payload_buf + offset, left_size);
+
+    request.setPayload(payload_buf);
   }
 
-  return move(request);
+  err_code = 200;
+  return true;
 }
 
 bool HTTPConnection::sendResponse(HTTPResponse &response) {
   auto ptr = response.getRawData();
   size_t len = response.getRawDataLen();
-  if (write(ptr.get(), len) < 0) {
+  if (write(ptr, len) < 0) {
     perror("Send response error\n");
+    delete [] ptr;
     return false;
   }
+  delete [] ptr;
   return true;
 }
 

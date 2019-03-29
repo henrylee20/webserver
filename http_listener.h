@@ -24,8 +24,9 @@ private:
   ssize_t write(char* buf, size_t len);
 
 public:
+  HTTPConnection();
   HTTPConnection(int fd, std::string ip, uint16_t port);
-  HTTPRequest recvRequest();
+  bool recvRequest(HTTPRequest& request, uint16_t& err_code);
   bool sendResponse(HTTPResponse& response);
   void close();
 };

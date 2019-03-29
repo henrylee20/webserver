@@ -1,3 +1,5 @@
+#include <memory>
+
 //
 // Created by henrylee on 19-3-26.
 //
@@ -27,7 +29,7 @@ private:
     std::atomic<size_t> job_count;
     std::atomic_bool is_hope_exit;
 
-    worker(ThreadPool* pool_ptr) :
+    explicit worker(ThreadPool* pool_ptr) :
     tid(0), pool(pool_ptr), status(kNotWorking), job_count(0), is_hope_exit(false) {}
 
     static void* thread_func(void* arg) {
