@@ -7,6 +7,7 @@
 
 #include <cstddef>
 #include <iostream>
+#include <sstream>
 
 class RefString {
 private:
@@ -45,7 +46,7 @@ public:
   const char& operator[](size_t pos) { return at(pos);}
   const char& operator[](size_t pos) const { return at(pos);}
 
-  int compare (const RefString& str) const;
+  int compare(const RefString& str) const;
   int compare(const std::string& str) const;
   int compare(const char* str) const;
 
@@ -53,10 +54,17 @@ public:
   bool operator==(const std::string& str) const { return !compare(str);}
   bool operator==(const char* str) const { return !compare(str);}
 
-  std::string toString() { return std::string(begin_ptr, end_ptr - begin_ptr);}
+  bool compareLower(const char* lower_str);
 
   friend std::ostream& operator<<(std::ostream& os, const RefString& str);
+
+  std::string&& toUpper();
+  std::string&& toLower();
 };
+
+std::string to_string(const RefString& str) {
+  return std::string(str.begin(), str.length());
+}
 
 template <>
 struct std::hash<RefString>
