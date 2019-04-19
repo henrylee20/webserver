@@ -1,22 +1,101 @@
 //
-// Created by henrylee on 18-12-8.
+// Created by henrylee on 19-3-6.
 //
 
-#ifndef WEBSERVER_QUEUE_H
-#define WEBSERVER_QUEUE_H
+#ifndef HTTP_SERVER_QUEUE_H
+#define HTTP_SERVER_QUEUE_H
 
-typedef struct queue_s {
-  // 将数据放入队列头
-  void (*push)(struct queue_s* self, void* payload);
-  // 从队列尾弹出数据
-  void* (*pop)(struct queue_s* self);
-  // 获得队列长度
-  int (*len)(struct queue_s* self);
-  // 析构函数
-  void (*destroy)(struct queue_s* self);
-} queue;
+#include <atomic>
 
-// 队列构造函数. 实例化一个队列,最大长度为max_len. 当max_len=0时,长度无限制
-queue* init_queue(int max_len);
+template <typename T>
+class SafeQueue {
+private:
+  struct node {
+    std::atomic<node*> next;
+    T data;
 
-#endif //WEBSERVER_QUEUE_H
+    node() : next(nullptr) {}
+    node(T const & val) : next(nullptr), data(val) {
+      //TODO avoid ABA
+    }
+  };
+
+private:
+  std::atomic<node*> head;
+  std::atomic<node*> tail;
+  std::atomic<size_t> len;
+
+public:
+  SafeQueue() : len(0) {
+    node* dummy_node = new node();
+    head.store(dummy_node, std::memory_order_relaxed);
+    tail.store(dummy_node, std::memory_order_release);
+  }
+
+  SafeQueue(SafeQueue&) = delete;
+  SafeQueue(SafeQueue&&) = delete;
+
+  ~SafeQueue() {
+    T dummy;
+    while (pop(dummy));
+    delete head.load(std::memory_order_relaxed);
+  }
+
+  size_t size() {
+    return len.load(std::memory_order_relaxed);
+  }
+
+  bool empty() {
+    return head.load() == tail.load();
+  }
+
+  bool push(T const & val) {
+    node* new_node = new node(val);
+
+    for (;;) {
+      node* tail_ptr = tail.load(std::memory_order_acquire);
+      node* next_ptr = tail_ptr->next.load(std::memory_order_acquire);
+
+      node* tail_ptr2 = tail.load(std::memory_order_acquire);
+
+      if (tail_ptr == tail_ptr2) {
+        if (next_ptr == nullptr) {
+          if (tail_ptr->next.compare_exchange_weak(next_ptr, new_node)) {
+            tail.compare_exchange_strong(tail_ptr, new_node);
+            return true;
+          }
+        } else {
+          tail.compare_exchange_strong(tail_ptr, next_ptr);
+        }
+      }
+    }
+  }
+
+  bool pop(T& ret) {
+    for (;;) {
+      node* head_ptr = head.load(std::memory_order_acquire);
+      node* tail_ptr = tail.load(std::memory_order_acquire);
+      node* next_ptr = head_ptr->next.load(std::memory_order_acquire);
+
+      node* head_ptr2 = head.load(std::memory_order_acquire);
+
+      if (head_ptr == head_ptr2) {
+        if (head_ptr == tail_ptr) {
+          if (next_ptr == nullptr) {
+            return false;
+          }
+          tail.compare_exchange_strong(tail_ptr, next_ptr);
+        } else {
+          ret = next_ptr->data;
+
+          if (head.compare_exchange_weak(head_ptr, next_ptr)) {
+            delete head_ptr;
+            return true;
+          }
+        }
+      }
+    }
+  }
+};
+
+#endif //HTTP_SERVER_QUEUE_H

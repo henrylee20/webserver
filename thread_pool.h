@@ -1,58 +1,158 @@
+#include <memory>
+
 //
-// Created by henrylee on 18-12-8.
+// Created by henrylee on 19-3-26.
 //
 
-#ifndef WEBSERVER_THREAD_POOL_H
-#define WEBSERVER_THREAD_POOL_H
+#ifndef HTTP_SERVER_THREAD_POOL_H
+#define HTTP_SERVER_THREAD_POOL_H
 
-#define THREAD_JOB_READY 0
-#define THREAD_JOB_RUNNING 1
-#define THREAD_JOB_FINISHED 2
+#include <functional>
+#include <future>
+#include <atomic>
+#include <vector>
+#include <pthread.h>
 
-typedef struct {
-  int id;
-  unsigned int jobs_counter;
-  int* is_hope_to_exit;
-} thread_info;
+#include "queue.h"
 
-typedef struct job_s {
-  void* (*func)(void* arg, thread_info* info);
-  void* job_arg;
-  void (*finished_callback)(void* arg);
-  void* finished_cb_arg;
-  int status;
-  int is_auto_destroy;
-} job;
+class ThreadPool {
+private:
+  enum workerStatus {
+    kNotWorking = 0,
+    kWorking
+  };
+
+  struct worker {
+    pthread_t tid;
+    ThreadPool* pool;
+    int status;
+    std::atomic<size_t> job_count;
+    std::atomic_bool is_hope_exit;
+
+    explicit worker(ThreadPool* pool_ptr) :
+    tid(0), pool(pool_ptr), status(kNotWorking), job_count(0), is_hope_exit(false) {}
+
+    static void* thread_func(void* arg) {
+      auto self = static_cast<worker*>(arg);
+
+      std::function<void()> job;
+
+      do {
+        self->status = kNotWorking;
+
+        pthread_mutex_lock(&self->pool->job_mutex);
+        if (self->pool->queue.empty()) pthread_cond_wait(&self->pool->job_cond, &self->pool->job_mutex);
+        bool pop_result = self->pool->queue.pop(job);
+        pthread_mutex_unlock(&self->pool->job_mutex);
+
+        if (pop_result) {
+          self->status = kWorking;
+          self->pool->working_num++;
+
+          job();
+
+          self->job_count++;
+          self->pool->working_num--;
+        }
+
+      } while(!self->is_hope_exit.load(std::memory_order_acquire));
+      return nullptr;
+    }
+  };
+
+private:
+  std::vector<std::shared_ptr<worker>> threads;
+  SafeQueue<std::function<void()>> queue;
+
+  pthread_cond_t job_cond{};
+  pthread_mutex_t job_mutex{};
+
+  std::atomic<size_t> working_num;
+
+  bool is_shutdown;
+
+private:
+
+public:
+  ThreadPool() : working_num(0), is_shutdown(true) {}
+
+  ~ThreadPool() {
+    shutdown();
+  }
+
+  ThreadPool(const ThreadPool&) = delete;
+  ThreadPool(ThreadPool&&) = delete;
+
+  ThreadPool& operator=(const ThreadPool&) = delete;
+  ThreadPool& operator=(ThreadPool&&) = delete;
+
+  template <typename F, typename ...Args>
+  auto submit(F&& f, Args&&... args) -> std::future<decltype(f(args...))> {
+
+    auto func = std::bind(std::forward<F>(f), std::forward<Args>(args)...);
+    auto task_ptr = std::make_shared<std::packaged_task<decltype(f(args...))()>>(func);
+
+    auto func_caller = [task_ptr]() {
+      (*task_ptr)();
+    };
+
+    queue.push(func_caller);
+
+    pthread_cond_signal(&job_cond);
+
+    return task_ptr->get_future();
+  }
+
+  bool init(size_t thread_num) {
+    if (pthread_mutex_init(&job_mutex, nullptr)) return false;
+    if (pthread_cond_init(&job_cond, nullptr)) return false;
+
+    return increaseThreadNum(thread_num);
+  }
+
+  void shutdown() {
+    is_shutdown = true;
+
+    reduceThreadNum(threads.size());
+
+    void* ret;
+    for (auto &woker : threads) {
+      pthread_join(woker->tid, &ret);
+    }
+
+    pthread_cond_destroy(&job_cond);
+    pthread_mutex_destroy(&job_mutex);
+  }
+
+  size_t workingNum() {
+    return working_num.load(std::memory_order_relaxed);
+  }
+
+  size_t size() {
+    return threads.size();
+  }
+
+  bool increaseThreadNum(size_t num) {
+    for (int i = 0; i < num; ++i) {
+      threads.push_back(std::make_shared<worker>(this));
+      if (pthread_create(&(threads.back()->tid), nullptr, worker::thread_func, threads.back().get())) return false;
+    }
+    return true;
+  }
+
+  bool reduceThreadNum(size_t num) {
+    num = num > threads.size() ? threads.size() : num;
+
+    for (; num > 0; --num) {
+      threads.back()->is_hope_exit = true;
+      threads.pop_back();
+    }
+
+    pthread_cond_broadcast(&job_cond);
+
+    return true;
+  }
+};
 
 
-typedef struct thread_pool_s {
-  // 析构函数
-  void (*destroy)(struct thread_pool_s* self);
-
-  // 设置线程默认工作
-  void (*set_default_job)(struct thread_pool_s* self, job* default_job);
-  // 往线程池工作队列中添加一项工作
-  void (*push_job)(struct thread_pool_s* self, job* new_job);
-
-  // 获得线程总数
-  int (*get_total_thread_num)(struct thread_pool_s* self);
-  // 获得工作中线程数量
-  int (*get_working_thread_num)(struct thread_pool_s* self);
-
-  // 添加线程
-  void (*add_threads)(struct thread_pool_s* self, int num);
-  // 移除线程
-  void (*reduce_threads)(struct thread_pool_s* self, int num);
-} thread_pool;
-
-// 线程池构造函数 实例化一个线程池
-thread_pool* thread_pool_init();
-
-// 创建一个工作.  func为工作所调用的函数,此函数的参数中,arg为参数,info为线程信息.
-//              arg为需要传递的参数,
-//              is_auto_destroy决定工作完成后是否自动销毁这项工作
-job* job_create(void* (*func)(void* arg, thread_info* info), void* arg, int is_auto_destroy);
-// 销毁一个工作
-void job_destroy(job* finished_job);
-
-#endif //WEBSERVER_THREAD_POOL_H
+#endif //HTTP_SERVER_THREAD_POOL_H
