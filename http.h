@@ -15,6 +15,18 @@ static constexpr char kHTTPVersion[] = "HTTP/1.1";
 
 class HTTPStatusDesc {
 private:
+  std::unordered_map<const char*, const char*> ext_type = {
+      {".avi", "video/avi"},
+      {".bmp", "application/x-bmp"},
+      {".css", "text/css"},
+      {".gif", "image/gif"},
+      {".htm", "text/html"},
+      {".html", "text/html"},
+      {".jpg", "image/jpeg"},
+      {".jpeg", "image/jpeg"},
+      {".txt", "text/plain"},
+  };
+
   std::unordered_map<uint16_t , std::string> code_desc = {
       {100, "Continue"},
       {101, "Switching Protocols"},
@@ -72,6 +84,7 @@ private:
 
 public:
   static std::string getDesc(uint16_t code);
+  static const char* getContentType(const char* extension);
 };
 
 class HTTPRequest {

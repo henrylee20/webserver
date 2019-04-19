@@ -28,6 +28,16 @@ std::string HTTPStatusDesc::getDesc(uint16_t code) {
   }
 }
 
+const char *HTTPStatusDesc::getContentType(const char *extension) {
+  auto iter = instance.ext_type.find(extension);
+  if (iter != instance.ext_type.end()) {
+    return iter->second;
+  } else {
+    return "application/octet-stream";
+  }
+}
+
+
 HTTPResponse::HTTPResponse(uint16_t code, unordered_map<string, string> headers, const char *payload, size_t payload_len)
                            : code(code), headers(std::move(headers)), payload(payload), payload_len(payload_len),
                              http_header_len(0), payload_fd(-1) {

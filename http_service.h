@@ -17,7 +17,7 @@ private:
   int listener_fd;
 
   std::unordered_map<std::string, std::string> server_info = {
-      {"Server", "HLServer 0.1"},
+      {"Server", "Green Tea 0.1"},
   };
 
 private:
@@ -59,7 +59,6 @@ public:
   HTTPMaster &operator=(const HTTPMaster&) = delete;
 
   int doJob();
-  int initEpoll();
 
   static int getNumOfCPUCore();
 };

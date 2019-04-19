@@ -33,7 +33,7 @@ int HTTPSlave::epollLoop() {
   }
 
   if (fcntl(listener_fd, F_SETFL, O_NONBLOCK) == -1) {
-    fprintf(stderr, "Proc[%d]: fcntl failed\n");
+    fprintf(stderr, "Proc[%d]: fcntl failed\n", pid);
   }
 
   addEvent(listener_fd, EPOLLIN | EPOLLET | EPOLLEXCLUSIVE);
@@ -246,6 +246,9 @@ string path = request.getDecodedPath();
   else
     headers["Connection"] = "closed";
 
+  // TODO content-type
+  headers["Content-Type"] = HTTPStatusDesc::getContentType(".txt");
+
   auto pid = getpid();
   fprintf(stdout, "Proc[%d]: handling get request. from: [%s:%u]\n", pid, connection.ip.c_str(), connection.port);
 
@@ -326,10 +329,6 @@ int HTTPSlave::traceHandler(HTTPConnection& connection, HTTPRequest &request) {
 int HTTPMaster::doJob() {
   while(wait(nullptr) != -1);
   return 0;
-}
-
-int HTTPMaster::initEpoll() {
-  return epoll_create(1);
 }
 
 int HTTPMaster::getNumOfCPUCore() {
