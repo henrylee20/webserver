@@ -76,13 +76,32 @@ public:
 
 class HTTPRequest {
 public:
-  RefString method;
+  enum HTTPMethod {
+    kUnknown = 0,
+    kGet,
+    kHead,
+    kPost,
+    kPut,
+    kDelete,
+    kConnect,
+    kOptions,
+    kTrace
+  };
+
+public:
+  HTTPMethod method;
+  RefString method_s;
   RefString path;
   RefString version;
   std::unordered_map<RefString, RefString> headers;
+  bool is_keep_alive;
   size_t http_header_len;
   size_t payload_len;
   char* payload;
+
+private:
+  char* header_buf;
+  char* payload_buf;
 
 public:
   HTTPRequest();
@@ -95,10 +114,6 @@ public:
   bool parseHeader(char* header_data);
   bool setPayload(char* payload_ptr);
   std::string getDecodedPath();
-
-private:
-  char* header_buf;
-  char* payload_buf;
 
 private:
   char* parseRequestMethod(char* p);
@@ -114,17 +129,24 @@ private:
   uint16_t code;
   std::string self_desc;
   std::unordered_map<std::string, std::string> headers;
+  const char* payload;
   size_t payload_len;
+
   size_t http_header_len;
 
-  const char* payload;
+  int payload_fd;
 
 public:
   HTTPResponse(uint16_t code, std::unordered_map<std::string, std::string> headers, const char* payload, size_t payload_len);
+  HTTPResponse(uint16_t code, std::unordered_map<std::string, std::string> headers, int payload_fd, size_t payload_len);
   HTTPResponse(uint16_t code, std::string desc, std::unordered_map<std::string, std::string> headers, const char* payload, size_t payload_len);
 
   char* getRawData();
   size_t getRawDataLen();
+
+  std::string getHeaderRawDate();
+  int getPayloadFD() { return payload_fd;}
+  size_t getPayloadLen() { return payload_len;}
 };
 
 #endif //HTTP_SERVER_HTTP_H

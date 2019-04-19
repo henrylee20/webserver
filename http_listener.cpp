@@ -10,6 +10,7 @@
 #include <pthread.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/sendfile.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
@@ -58,20 +59,12 @@ bool HTTPListener::listen(std::string ip, uint16_t port) {
     return false;
   }
 
-  if (pthread_mutex_init(&mutex_accept, nullptr) < 0) {
-    printf("Failed to init connection mutex");
-  }
-
   master_fd = sd;
 
   return true;
 }
 
 HTTPConnection HTTPListener::accept() {
-  if (pthread_mutex_lock(&mutex_accept) < 0) {
-  		printf("Failed to lock connection mutex.");
-  }
-
   int newsock;
   sockaddr_in new_recv_addr{};
   unsigned int addr_len;
@@ -80,10 +73,6 @@ HTTPConnection HTTPListener::accept() {
 
   newsock = ::accept(master_fd, (struct sockaddr *)&new_recv_addr, &addr_len);
 
-  if (pthread_mutex_unlock(&mutex_accept) < 0) {
-  		printf("Failed to unlock connection mutex.");
-  }
-
   uint16_t port = new_recv_addr.sin_port;
   string ip(inet_ntoa(new_recv_addr.sin_addr));
 
@@ -91,14 +80,13 @@ HTTPConnection HTTPListener::accept() {
 }
 
 HTTPConnection::HTTPConnection() : fd(-1), ip("Not Connected"), port(0) {}
-HTTPConnection::HTTPConnection(int fd, string ip, uint16_t port): fd(fd), ip(std::move(ip)), port(port) {
-}
+HTTPConnection::HTTPConnection(int fd, string ip, uint16_t port): fd(fd), ip(std::move(ip)), port(port) {}
 
 ssize_t HTTPConnection::read(char *buf, size_t max_len) {
   return ::read(fd, buf, max_len);
 }
 
-ssize_t HTTPConnection::write(char *buf, size_t len) {
+ssize_t HTTPConnection::write(const char *buf, size_t len) {
   ssize_t sent_len = 0;
   ssize_t n;
   while (sent_len != len) {
@@ -114,16 +102,30 @@ ssize_t HTTPConnection::write(char *buf, size_t len) {
 bool HTTPConnection::recvRequest(HTTPRequest& request, uint16_t& err_code) {
   char* header_buf = new char[kRecvBufSize];
 
+  err_code = 0;
   ssize_t read_len = read(header_buf, kRecvBufSize);
-  if (!read_len) {
-    err_code = 0;
+  auto pid = getpid();
+
+  if (read_len == 0) {
+    fprintf(stdout, "Proc[%d]: socket read finished.\n", pid);
     return false;
   }
 
-  request.parseHeader(header_buf);
+  if (read_len < 0) {
+    fprintf(stderr, "Proc[%d]: socket invalid.\n", pid);
+    return false;
+  }
+
+  fprintf(stdout, "Proc[%d]: recv len: %ld\n", pid, read_len);
+
+  if (!request.parseHeader(header_buf)) {
+    fprintf(stderr, "Proc[%d]: Parse Header err.\n", pid);
+    err_code = 400;
+    return false;
+  }
 
   if (read_len == kRecvBufSize && request.payload_len == 0) {
-    perror("Headers is too large.\n");
+    fprintf(stderr, "Proc[%d]: Headers is too large.\n", pid);
     err_code = 413;
     return false;
   }
@@ -140,20 +142,42 @@ bool HTTPConnection::recvRequest(HTTPRequest& request, uint16_t& err_code) {
     request.setPayload(payload_buf);
   }
 
-  err_code = 200;
   return true;
 }
 
 bool HTTPConnection::sendResponse(HTTPResponse &response) {
-  auto ptr = response.getRawData();
-  size_t len = response.getRawDataLen();
-  if (write(ptr, len) < 0) {
-    perror("Send response error\n");
-    delete [] ptr;
-    return false;
+  if (response.getPayloadFD() < 0) {
+
+    auto ptr = response.getRawData();
+    size_t len = response.getRawDataLen();
+    if (write(ptr, len) < 0) {
+      perror("Send response error\n");
+      delete[] ptr;
+      return false;
+    }
+    delete[] ptr;
+    return true;
+
+  } else {
+
+    auto header_data = response.getHeaderRawDate();
+    if (write(header_data.c_str(), header_data.length()) < 0) {
+      perror("Send response error\n");
+      return false;
+    }
+    size_t len = response.getPayloadLen();
+    size_t sent_len = 0;
+    int payload_fd = response.getPayloadFD();
+    while (sent_len != len) {
+      ssize_t n = sendfile(fd, payload_fd, nullptr, len - sent_len);
+      if (n == -1) {
+        perror("sendfile failed.\n");
+        return false;
+      }
+      sent_len += n;
+    }
+    return true;
   }
-  delete [] ptr;
-  return true;
 }
 
 void HTTPConnection::close() {

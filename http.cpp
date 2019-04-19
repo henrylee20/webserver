@@ -29,7 +29,15 @@ std::string HTTPStatusDesc::getDesc(uint16_t code) {
 }
 
 HTTPResponse::HTTPResponse(uint16_t code, unordered_map<string, string> headers, const char *payload, size_t payload_len)
-                           : code(code), headers(std::move(headers)), payload(payload), payload_len(payload_len) {
+                           : code(code), headers(std::move(headers)), payload(payload), payload_len(payload_len),
+                             http_header_len(0), payload_fd(-1) {
+}
+
+HTTPResponse::HTTPResponse(uint16_t code, std::unordered_map<std::string, std::string> headers, int payload_fd,
+                           size_t payload_len)
+                           : code(code), headers(std::move(headers)), payload(nullptr), payload_len(payload_len),
+                             http_header_len(0), payload_fd(payload_fd) {
+
 }
 
 HTTPResponse::HTTPResponse(uint16_t code, string desc, unordered_map<string, string> headers, const char *payload, size_t payload_len)
@@ -62,16 +70,35 @@ char* HTTPResponse::getRawData() {
   return result;
 }
 
+std::string HTTPResponse::getHeaderRawDate() {
+  stringstream response_info;
+  string code_desc = HTTPStatusDesc::getDesc(code);
+
+  if (code_desc.empty()) {
+    code_desc = self_desc;
+  }
+
+  response_info << kHTTPVersion << " " << code << " " << code_desc << "\r\n";
+  for (const auto &iter : headers) {
+    response_info << iter.first << ": " << iter.second << "\r\n";
+  }
+  response_info << "\r\n";
+
+  return response_info.str();
+}
+
 size_t HTTPResponse::getRawDataLen() {
   return http_header_len + payload_len;
 }
 
 HTTPRequest::HTTPRequest()
-: http_header_len(0), payload_len(0), payload(nullptr), header_buf(nullptr), payload_buf(nullptr) {
+: method(kUnknown), is_keep_alive(true), http_header_len(0), payload_len(0)
+, payload(nullptr), header_buf(nullptr), payload_buf(nullptr) {
 }
 
 HTTPRequest::HTTPRequest(const HTTPRequest& request)
-: method(request.method), path(request.path), version(request.version), headers(request.headers)
+: method(kUnknown), is_keep_alive(true)
+, method_s(request.method_s), path(request.path), version(request.version), headers(request.headers)
 , http_header_len(request.http_header_len), payload_len(request.payload_len)
 , payload(nullptr), header_buf(nullptr), payload_buf(nullptr) {
   header_buf = new char[request.http_header_len];
@@ -84,7 +111,8 @@ HTTPRequest::HTTPRequest(const HTTPRequest& request)
 }
 
 HTTPRequest::HTTPRequest(HTTPRequest&& request) noexcept
-: method(request.method), path(request.path), version(request.version), headers(request.headers)
+: method(request.method), is_keep_alive(request.is_keep_alive)
+, method_s(request.method_s), path(request.path), version(request.version), headers(request.headers)
 , http_header_len(request.http_header_len), payload_len(request.payload_len)
 , payload(request.payload), header_buf(request.header_buf), payload_buf(request.payload_buf) {
   request.payload = nullptr;
@@ -133,6 +161,7 @@ bool HTTPRequest::setPayload(char* payload_ptr) {
 
 std::string HTTPRequest::getDecodedPath() {
   stringstream ss;
+  ss << ".";
   char hex_trans_buf[3] = {0};
   for (auto i = path.begin(); i != path.end(); i++) {
     if (*i == '%' &&
@@ -157,8 +186,18 @@ char *HTTPRequest::parseRequestMethod(char *p) {
     if (!p[i]) return nullptr;
     i++;
   }
-  method = RefString(p, i);
+  method_s = RefString(p, i);
   p += i;
+
+  if (method_s == "GET") method = kGet;
+  else if (method_s == "HEAD") method = kHead;
+  else if (method_s == "POST") method = kPost;
+  else if (method_s == "PUT") method = kPut;
+  else if (method_s == "DELETE") method = kDelete;
+  else if (method_s == "CONNECT") method = kConnect;
+  else if (method_s == "OPTIONS") method = kOptions;
+  else if (method_s == "TRACE") method = kTrace;
+  else method = kUnknown;
 
   while (*p == ' ') {
     if (!*p) return nullptr;
@@ -227,8 +266,6 @@ char *HTTPRequest::parseHeaderLine(char *p) {
   size_t i = 0;
   char* start_pos = nullptr;
 
-  //cerr<< "header key: [" << p << "]" <<endl;
-
   start_pos = p;
   for (i = 0; *p != ':'; i++, p++) {
     assert(*p);
@@ -245,7 +282,6 @@ char *HTTPRequest::parseHeaderLine(char *p) {
   }
   RefString key(start_pos, i + 1);
 
-  //cerr<< "header val: [" << p << "]" <<endl;
   start_pos = p;
   for (i = 0; !(*p == '\r' && *(p + 1) == '\n'); i++, p++) {
     assert(*p);
@@ -256,6 +292,10 @@ char *HTTPRequest::parseHeaderLine(char *p) {
 
   while (start_pos[i] == ' ') i--;
   RefString val(start_pos, i + 1);
+
+  if (key.compareLower("connection") && val.compareLower("close")) {
+    this->is_keep_alive = false;
+  }
 
   headers.insert(make_pair(key, val));
   return p;

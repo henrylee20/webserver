@@ -1,4 +1,4 @@
-#include <map>
+#include <bits/stl_pair.h>
 
 template <typename _Tp>
 class SingleList {
@@ -58,7 +58,7 @@ public:
 
 
 private:
-  size_t len;
+  std::size_t len;
 
   Node* head;
   Node* tail;
@@ -158,7 +158,7 @@ public:
     tail = tail->next;
   }
 
-  size_t size() {
+  std::size_t size() {
     return len;
   }
 
@@ -171,12 +171,12 @@ public:
   typedef _Tp  val_type;
 
 private:
-  size_t max_len;
+  std::size_t max_len;
 
   SingleList<std::pair<key_type, val_type>> list;
 
 public:
-  explicit Cache(size_t max_len) : max_len(max_len) {}
+  explicit Cache(std::size_t max_len) : max_len(max_len) {}
 
   // put new element to tail of list
   void push(key_type key, val_type val) {

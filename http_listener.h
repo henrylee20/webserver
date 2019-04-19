@@ -21,7 +21,7 @@ public:
 
 private:
   ssize_t read(char* buf, size_t max_len);
-  ssize_t write(char* buf, size_t len);
+  ssize_t write(const char* buf, size_t len);
 
 public:
   HTTPConnection();
@@ -36,11 +36,13 @@ private:
   int master_fd;
   std::string ip;
   uint16_t port;
-  pthread_mutex_t mutex_accept;
 
 public:
+  HTTPListener () = default;
+  explicit HTTPListener(int fd) : master_fd(fd), port(0) {}
   bool listen(std::string ip, uint16_t port);
   HTTPConnection accept();
+  int getFD() { return master_fd;}
 };
 
 

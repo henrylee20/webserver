@@ -5,11 +5,14 @@
 #include <list>
 #include <mutex>
 #include <algorithm>
+#include <fstream>
 
+#include <unistd.h>
 #include <pthread.h>
 
 #include "http.h"
 #include "http_listener.h"
+#include "http_service.h"
 #include "queue.h"
 #include "thread_pool.h"
 
@@ -28,7 +31,7 @@ void process(HTTPConnection& connection) {
     }
   }
 
-  cout << "Method: " << request.method << endl;
+  cout << "Method: " << request.method_s << endl;
   cout << "Path: " << request.getDecodedPath() << endl;
   cout << "HTTP Version: " << request.version << endl;
   for (const auto &iter : request.headers) {
@@ -53,11 +56,32 @@ void process(HTTPConnection& connection) {
   connection.close();
 }
 
-
 int main() {
   std::cout << "Hello, World!" << std::endl;
+
   HTTPListener listener;
   listener.listen("0.0.0.0", 8888);
+
+  vector<int> children;
+
+  HTTPMaster master(children);
+  int num_of_core = HTTPMaster::getNumOfCPUCore();
+  FileLock file_lock("/tmp/web_server.lock");
+
+  for (int i = 0; i < num_of_core; i++) {
+    int pid = fork();
+
+    if (pid == 0) {
+      HTTPSlave slave(listener.getFD(), file_lock);
+      exit(slave.epollLoop());
+    } else if (pid > 0) {
+      children.push_back(pid);
+    } else {
+      cerr << "fork err" << endl;
+    }
+  }
+
+  return master.doJob();
 
   ThreadPool threads;
   threads.init(1);

@@ -25,28 +25,28 @@ RefString::RefString(const char* str, size_t len)
 RefString::RefString(const std::string& str)
 : begin_ptr(&(*str.begin())), end_ptr(&(*str.end())){}
 
-void RefString::refTo(const char* begin_p, const char* end_p) {
+inline void RefString::refTo(const char* begin_p, const char* end_p) {
   begin_ptr = begin_p;
   end_ptr = end_p;
 }
 
-void RefString::refTo(const char* str) {
+inline void RefString::refTo(const char* str) {
   begin_ptr = str;
   end_ptr = begin_ptr;
   while (*end_ptr) ++end_ptr;
 }
 
-void RefString::refTo(const char* str, size_t len) {
+inline void RefString::refTo(const char* str, size_t len) {
   begin_ptr = str;
   end_ptr = str + len;
 }
 
-void RefString::refTo(const std::string& str) {
+inline void RefString::refTo(const std::string& str) {
   begin_ptr = &(*str.begin());
   end_ptr = &(*str.end());
 }
 
-int RefString::compare (const RefString& str) const {
+int RefString::compare(const RefString& str) const {
     const char* p1 = begin_ptr;
     const char* p2 = str.begin();
 
@@ -71,4 +71,37 @@ int RefString::compare(const char* str) const {
 
   RefString ref_str(const_cast<char*>(str), const_cast<char*>(str_end));
   return compare(ref_str);
+}
+
+bool RefString::compareLower(const char *lower_str) {
+  for (auto iter = begin_ptr; iter != end_ptr; iter++, lower_str++) {
+    char c = *iter;
+    if (c >= 'A' && c <= 'Z') {
+      c += 'a' - 'A';
+    }
+    if (c != *lower_str) return false;
+  }
+  return *lower_str == '\0';
+}
+
+std::string&& RefString::toUpper() {
+  std::stringstream ss;
+  for (auto iter = begin_ptr; iter != end_ptr; iter++) {
+    if (*iter >= 'a' && *iter <= 'z') ss << *iter + ('A' - 'a');
+    else ss << *iter;
+  }
+  return std::move(ss.str());
+}
+
+std::string&& RefString::toLower() {
+  std::stringstream ss;
+  for (auto iter = begin_ptr; iter != end_ptr; iter++) {
+    if (*iter >= 'A' && *iter <= 'A') ss << *iter + ('a' - 'A');
+    else ss << *iter;
+  }
+  return std::move(ss.str());
+}
+
+std::string to_string(const RefString& str) {
+  return std::string(str.begin(), str.length());
 }

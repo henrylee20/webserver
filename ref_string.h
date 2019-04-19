@@ -62,9 +62,7 @@ public:
   std::string&& toLower();
 };
 
-std::string to_string(const RefString& str) {
-  return std::string(str.begin(), str.length());
-}
+std::string to_string(const RefString& str);
 
 template <>
 struct std::hash<RefString>
